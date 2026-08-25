@@ -96,12 +96,32 @@ const useChatStore = create((set, get) => ({
   setNickname: async (contactId, nickname) => {
     try {
       await api.post('/users/nickname', { contact_user_id: contactId, nickname });
-      get().fetchConversations();
-      if (get().selectedUser?.id === contactId) {
-        set({ selectedUser: { ...get().selectedUser, display_name: nickname || get().selectedUser.actual_username } });
+      const res = await api.get('/conversations');
+      set({ conversations: res.data });
+      const currentSelected = get().selectedUser;
+      if (currentSelected && currentSelected.id === contactId) {
+        const updatedContact = res.data.find(c => c.contact?.id === contactId)?.contact;
+        if (updatedContact) {
+          set({ selectedUser: updatedContact });
+        }
       }
-    } catch (err) {
-      console.error(err);
+    } catch (error) {
+      console.error(error);
+    }
+  },
+
+  hideConversation: async (conversationId) => {
+    try {
+      await api.delete(`/conversations/${conversationId}`);
+      // Remove from list
+      set((state) => ({
+        conversations: state.conversations.filter(c => c.id !== conversationId),
+        activeConversationId: state.activeConversationId === conversationId ? null : state.activeConversationId,
+        selectedUser: state.activeConversationId === conversationId ? null : state.selectedUser,
+        messages: state.activeConversationId === conversationId ? [] : state.messages
+      }));
+    } catch (error) {
+      console.error(error);
     }
   }
 }));

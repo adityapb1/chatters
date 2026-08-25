@@ -38,7 +38,15 @@ router.post('/register', async (req, res) => {
       }
     });
 
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    const session = await prisma.session.create({
+      data: {
+        user_id: user.id,
+        device_info: req.headers['user-agent'] || 'Unknown Device',
+        ip_address: req.ip || req.connection.remoteAddress
+      }
+    });
+
+    const token = jwt.sign({ userId: user.id, sessionId: session.id }, JWT_SECRET, { expiresIn: '7d' });
     setTokenCookie(res, token);
     
     res.json({ user: { id: user.id, username: user.username, display_name: user.display_name, profile_picture: user.profile_picture } });
@@ -64,7 +72,15 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    const session = await prisma.session.create({
+      data: {
+        user_id: user.id,
+        device_info: req.headers['user-agent'] || 'Unknown Device',
+        ip_address: req.ip || req.connection.remoteAddress
+      }
+    });
+
+    const token = jwt.sign({ userId: user.id, sessionId: session.id }, JWT_SECRET, { expiresIn: '7d' });
     setTokenCookie(res, token);
     
     res.json({ user: { id: user.id, username: user.username, display_name: user.display_name, profile_picture: user.profile_picture } });
@@ -73,7 +89,10 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', authenticate, async (req, res) => {
+  if (req.sessionId) {
+    await prisma.session.deleteMany({ where: { id: req.sessionId } }).catch(() => {});
+  }
   res.clearCookie('token');
   res.json({ success: true });
 });

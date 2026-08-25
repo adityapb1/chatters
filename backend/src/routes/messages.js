@@ -21,6 +21,8 @@ const verifyConversationMember = async (req, res, next) => {
   if (!isMember) {
     return res.status(403).json({ error: 'Forbidden: You are not part of this conversation' });
   }
+  
+  req.membership = isMember;
   next();
 };
 
@@ -29,10 +31,17 @@ router.get('/:conversationId', authenticate, verifyConversationMember, async (re
   const { conversationId } = req.params;
   const cursor = req.query.cursor; 
   const limit = 20;
+  
+  const hiddenAt = req.membership.hidden_at;
 
   try {
+    const whereClause = { conversation_id: conversationId };
+    if (hiddenAt) {
+      whereClause.created_at = { gt: hiddenAt };
+    }
+
     const messages = await prisma.message.findMany({
-      where: { conversation_id: conversationId },
+      where: whereClause,
       take: limit,
       skip: cursor ? 1 : 0,
       cursor: cursor ? { id: cursor } : undefined,
@@ -52,7 +61,6 @@ router.get('/:conversationId', authenticate, verifyConversationMember, async (re
         where: { id: { in: unreadIds } },
         data: { status: 'READ' }
       });
-      // socket event will be emitted via separate mechanism if needed
     }
 
     res.json({

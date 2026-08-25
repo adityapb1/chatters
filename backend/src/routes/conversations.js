@@ -34,27 +34,36 @@ router.get('/', authenticate, async (req, res) => {
     const nicknameMap = {};
     nicknames.forEach(n => nicknameMap[n.contact_user_id] = n.nickname);
 
-    const conversations = memberships.map(m => {
-      const conv = m.conversation;
-      const otherMember = conv.members[0]?.user;
-      
-      let display_name = otherMember?.display_name || otherMember?.username;
-      if (otherMember && nicknameMap[otherMember.id]) {
-        display_name = nicknameMap[otherMember.id];
-      }
+    const conversations = memberships
+      .map(m => {
+        const conv = m.conversation;
+        const otherMember = conv.members[0]?.user;
+        const lastMessage = conv.messages[0];
 
-      return {
-        id: conv.id,
-        updated_at: conv.updated_at,
-        contact: otherMember ? {
-          ...otherMember,
-          display_name,
-          actual_username: otherMember.username
-        } : null,
-        lastMessage: conv.messages[0] || null,
-        unreadCount: 0 // Can be computed via unread logic
-      };
-    }).sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+        // If conversation is hidden, don't show it unless there's a message newer than hidden_at
+        if (m.hidden_at && (!lastMessage || new Date(lastMessage.created_at) <= new Date(m.hidden_at))) {
+          return null;
+        }
+        
+        let display_name = otherMember?.display_name || otherMember?.username;
+        if (otherMember && nicknameMap[otherMember.id]) {
+          display_name = nicknameMap[otherMember.id];
+        }
+
+        return {
+          id: conv.id,
+          updated_at: conv.updated_at,
+          contact: otherMember ? {
+            ...otherMember,
+            display_name,
+            actual_username: otherMember.username
+          } : null,
+          lastMessage: lastMessage || null,
+          unreadCount: 0 // Can be computed via unread logic
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 
     res.json(conversations);
   } catch (error) {
@@ -71,7 +80,6 @@ router.post('/', authenticate, async (req, res) => {
   if (contact_id === userId) return res.status(400).json({ error: 'Cannot chat with yourself' });
 
   try {
-    // Check if conversation already exists (where both are members)
     const existingMemberships = await prisma.conversationMember.findMany({
       where: { user_id: userId },
       select: { conversation_id: true }
@@ -87,10 +95,14 @@ router.post('/', authenticate, async (req, res) => {
     });
 
     if (commonConversation) {
+      // Un-hide the conversation if it was hidden
+      await prisma.conversationMember.update({
+        where: { conversation_id_user_id: { conversation_id: commonConversation.conversation_id, user_id: userId } },
+        data: { hidden_at: null }
+      });
       return res.json({ id: commonConversation.conversation_id });
     }
 
-    // Create new conversation
     const newConv = await prisma.conversation.create({
       data: {
         members: {
@@ -103,6 +115,21 @@ router.post('/', authenticate, async (req, res) => {
     });
 
     res.json({ id: newConv.id });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete (Hide) Conversation
+router.delete('/:id', authenticate, async (req, res) => {
+  try {
+    await prisma.conversationMember.update({
+      where: { 
+        conversation_id_user_id: { conversation_id: req.params.id, user_id: req.user.id } 
+      },
+      data: { hidden_at: new Date() }
+    });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

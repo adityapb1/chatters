@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuthStore, api } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
-import { Menu, Send, MoreVertical, Edit2, Trash2, X, Check, CheckCheck } from 'lucide-react';
+import { Menu, Send, MoreVertical, Edit2, Trash2, X, Check, CheckCheck, RefreshCw, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function ChatArea({ toggleSidebar, socket }) {
@@ -14,7 +14,8 @@ export default function ChatArea({ toggleSidebar, socket }) {
     typingUsers,
     setNickname,
     fetchMessages,
-    hasMoreMessages
+    hasMoreMessages,
+    hideConversation
   } = useChatStore();
 
   const [inputText, setInputText] = useState('');
@@ -23,14 +24,44 @@ export default function ChatArea({ toggleSidebar, socket }) {
   const [newNickname, setNewNickname] = useState('');
   const [editingMessageId, setEditingMessageId] = useState(null);
   
+  // Connection state
+  const [isConnected, setIsConnected] = useState(true);
+  // Local pending/failed messages
+  const [pendingMessages, setPendingMessages] = useState([]);
+  
   const messagesEndRef = useRef(null);
   const scrollContainerRef = useRef(null);
+
+  // Drafts
+  useEffect(() => {
+    if (activeConversationId) {
+      const draft = localStorage.getItem(`draft_${activeConversationId}`);
+      if (draft) setInputText(draft);
+      else setInputText('');
+    }
+  }, [activeConversationId]);
+
+  // Connection monitoring
+  useEffect(() => {
+    if (!socket) return;
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => setIsConnected(false);
+    
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    setIsConnected(socket.connected);
+    
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, [socket]);
 
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
     }
-  }, [messages.length, activeConversationId]);
+  }, [messages.length, pendingMessages.length, activeConversationId]);
 
   const handleScroll = () => {
     if (scrollContainerRef.current) {
@@ -67,17 +98,52 @@ export default function ChatArea({ toggleSidebar, socket }) {
       api.put(`/messages/${editingMessageId}`, { content: inputText }).then(() => {
         setEditingMessageId(null);
         setInputText('');
+        localStorage.removeItem(`draft_${activeConversationId}`);
       }).catch(err => console.error(err));
       return;
     }
 
-    socket?.emit('send_message', {
-      conversation_id: activeConversationId,
-      content: inputText
-    });
-
+    const tempId = Date.now().toString();
+    const tempMsg = {
+      id: tempId,
+      sender_id: user.id,
+      content: inputText,
+      created_at: new Date().toISOString(),
+      status: 'PENDING',
+      isTemp: true
+    };
+    
+    setPendingMessages(prev => [...prev, tempMsg]);
     setInputText('');
+    localStorage.removeItem(`draft_${activeConversationId}`);
     socket?.emit('typing_stop', { conversation_id: activeConversationId });
+
+    if (socket && socket.connected) {
+      socket.emit('send_message', {
+        conversation_id: activeConversationId,
+        content: tempMsg.content,
+        temp_id: tempId
+      });
+      // In a real app we'd wait for ACK to remove from pending. For simplicity, we just clear it.
+      // But let's assume we remove it after a timeout if we don't get it back from DB
+      setTimeout(() => {
+        setPendingMessages(prev => prev.filter(m => m.id !== tempId));
+      }, 500);
+    } else {
+      setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, failed: true } : m));
+    }
+  };
+
+  const handleRetry = (msg) => {
+    setPendingMessages(prev => prev.filter(m => m.id !== msg.id));
+    if (socket && socket.connected) {
+      socket.emit('send_message', {
+        conversation_id: activeConversationId,
+        content: msg.content
+      });
+    } else {
+      setPendingMessages(prev => [...prev, msg]);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -89,13 +155,20 @@ export default function ChatArea({ toggleSidebar, socket }) {
   };
 
   const handleTyping = (e) => {
-    setInputText(e.target.value);
-    if (e.target.value.length > 0) {
+    const val = e.target.value;
+    setInputText(val);
+    if (activeConversationId) {
+      localStorage.setItem(`draft_${activeConversationId}`, val);
+    }
+
+    if (val.length > 0) {
       socket?.emit('typing_start', { conversation_id: activeConversationId });
     } else {
       socket?.emit('typing_stop', { conversation_id: activeConversationId });
     }
   };
+
+  const allMessages = [...messages, ...pendingMessages];
 
   return (
     <div className="flex-1 flex flex-col h-full bg-bg-primary relative">
@@ -130,8 +203,13 @@ export default function ChatArea({ toggleSidebar, socket }) {
               </div>
             ) : (
               <>
-                <h2 className="font-semibold text-text-primary leading-tight">
+                <h2 className="font-semibold text-text-primary leading-tight flex items-center gap-2">
                   {selectedUser.display_name || selectedUser.actual_username}
+                  {!isConnected && (
+                    <span className="text-[10px] bg-yellow-500/10 text-yellow-600 px-1.5 py-0.5 rounded border border-yellow-500/20 flex items-center gap-1">
+                      <RefreshCw size={10} className="animate-spin" /> Reconnecting...
+                    </span>
+                  )}
                 </h2>
                 <p className="text-xs text-text-secondary font-medium">
                   {isTyping ? 'Typing...' : (isOnline ? 'Online' : 'Offline')}
@@ -155,9 +233,15 @@ export default function ChatArea({ toggleSidebar, socket }) {
               </button>
               <button 
                 onClick={async () => { await setNickname(selectedUser.id, ''); setShowMenu(false); }}
-                className="w-full text-left px-4 py-3 text-sm hover:bg-bg-primary flex items-center gap-2 text-red-500 border-t border-border-custom transition-colors"
+                className="w-full text-left px-4 py-3 text-sm hover:bg-bg-primary flex items-center gap-2 text-text-primary border-t border-border-custom transition-colors"
               >
                 Reset Original Name
+              </button>
+              <button 
+                onClick={() => { hideConversation(activeConversationId); setShowMenu(false); }}
+                className="w-full text-left px-4 py-3 text-sm hover:bg-red-500/10 flex items-center gap-2 text-red-500 border-t border-border-custom transition-colors"
+              >
+                <Trash2 size={16} /> Delete for me
               </button>
             </div>
           )}
@@ -170,7 +254,7 @@ export default function ChatArea({ toggleSidebar, socket }) {
         onScroll={handleScroll}
         ref={scrollContainerRef}
       >
-        {messages.map((msg, idx) => {
+        {allMessages.map((msg, idx) => {
           const isMine = msg.sender_id === user.id;
           const isDeleted = !!msg.deleted_at;
 
@@ -178,20 +262,20 @@ export default function ChatArea({ toggleSidebar, socket }) {
             <div key={msg.id || idx} className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} group`}>
               <div className="flex items-center gap-2">
                 
-                {isMine && !isDeleted && (
+                {isMine && !isDeleted && !msg.isTemp && (
                   <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
                     <button onClick={() => { setEditingMessageId(msg.id); setInputText(msg.content); }} className="p-1 text-text-secondary hover:text-accent transition-colors"><Edit2 size={14}/></button>
                     <button onClick={() => handleDelete(msg.id)} className="p-1 text-text-secondary hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
                   </div>
                 )}
 
-                <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 relative shadow-sm ${isDeleted ? 'bg-bg-secondary text-text-secondary border border-border-custom italic' : isMine ? 'bg-accent text-white rounded-br-none' : 'bg-bg-secondary text-text-primary rounded-bl-none border border-border-custom'}`}>
+                <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 relative shadow-sm ${isDeleted ? 'bg-bg-secondary text-text-secondary border border-border-custom italic' : isMine ? 'bg-accent text-white rounded-br-none' : 'bg-bg-secondary text-text-primary rounded-bl-none border border-border-custom'} ${msg.failed ? 'opacity-80 border-red-500/50' : ''}`}>
                   <p className="break-words text-[15px] leading-relaxed">{msg.content}</p>
 
                   <div className={`text-[10px] mt-1.5 flex items-center justify-end gap-1 font-medium ${isDeleted ? 'opacity-50' : isMine ? 'text-blue-100' : 'text-text-secondary'}`}>
                     {msg.edited_at && <span>Edited</span>}
                     <span>{format(new Date(msg.created_at || Date.now()), 'HH:mm')}</span>
-                    {isMine && !isDeleted && (
+                    {isMine && !isDeleted && !msg.isTemp && (
                       <span className="ml-0.5">
                         {msg.status === 'READ' ? <CheckCheck size={12} /> : msg.status === 'DELIVERED' ? <CheckCheck size={12} /> : <Check size={12} />}
                       </span>
@@ -200,6 +284,13 @@ export default function ChatArea({ toggleSidebar, socket }) {
                 </div>
 
               </div>
+              
+              {msg.failed && (
+                <div className="mt-1 mr-1 flex items-center gap-2 text-xs text-red-500 font-medium">
+                  <AlertCircle size={12} /> Message failed to send
+                  <button onClick={() => handleRetry(msg)} className="underline hover:text-red-600">Retry</button>
+                </div>
+              )}
             </div>
           );
         })}

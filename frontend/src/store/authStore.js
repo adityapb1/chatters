@@ -5,10 +5,10 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
-  withCredentials: true // Important for HttpOnly cookies
+  withCredentials: true 
 });
 
-const useAuthStore = create((set) => ({
+const useAuthStore = create((set, get) => ({
   user: null,
   isAuthenticated: false,
   error: null,
@@ -52,6 +52,26 @@ const useAuthStore = create((set) => ({
       return { success: true };
     } catch (error) {
       return { success: false, error: error.response?.data?.error || 'Update failed' };
+    }
+  },
+
+  updatePrivacy: async (data) => {
+    try {
+      const res = await api.put('/users/privacy', data);
+      set({ user: res.data });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error || 'Update failed' };
+    }
+  },
+
+  deleteAccount: async () => {
+    try {
+      await api.delete('/users/account');
+      set({ user: null, isAuthenticated: false });
+      return true;
+    } catch (error) {
+      return false;
     }
   },
 

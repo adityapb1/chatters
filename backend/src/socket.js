@@ -4,11 +4,9 @@ module.exports = (io, prisma) => {
   const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
   io.use((socket, next) => {
-    // Parse cookies from headers
     const cookieHeader = socket.request.headers.cookie;
     if (!cookieHeader) return next(new Error('Authentication error'));
     
-    // Simple cookie parser for "token=..."
     const tokenCookie = cookieHeader.split('; ').find(row => row.startsWith('token='));
     if (!tokenCookie) return next(new Error('Authentication error'));
     
@@ -17,6 +15,7 @@ module.exports = (io, prisma) => {
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
       if (err) return next(new Error('Authentication error'));
       socket.userId = decoded.userId;
+      socket.sessionId = decoded.sessionId;
       next();
     });
   });
@@ -25,9 +24,16 @@ module.exports = (io, prisma) => {
     const userId = socket.userId;
     socket.join(userId);
 
-    socket.broadcast.emit('user_status', { userId, status: 'online' });
+    // Fetch user privacy settings
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { online_status_visible: true, typing_indicator_enabled: true }
+    });
 
-    // Client explicitly joins conversations
+    if (user && user.online_status_visible) {
+      socket.broadcast.emit('user_status', { userId, status: 'online' });
+    }
+
     socket.on('join_conversation', async ({ conversation_id }) => {
       const isMember = await prisma.conversationMember.findUnique({
         where: { conversation_id_user_id: { conversation_id, user_id: userId } }
@@ -38,14 +44,19 @@ module.exports = (io, prisma) => {
     });
 
     socket.on('send_message', async (data) => {
-      const { conversation_id, content, type, file_data } = data;
+      const { conversation_id, content, type } = data;
 
       try {
-        // Verify membership
         const isMember = await prisma.conversationMember.findUnique({
           where: { conversation_id_user_id: { conversation_id, user_id: userId } }
         });
         if (!isMember) return;
+
+        // Ensure the conversation is un-hidden for the sender and recipient
+        await prisma.conversationMember.updateMany({
+          where: { conversation_id: conversation_id },
+          data: { hidden_at: null }
+        });
 
         const messageData = {
           conversation_id,
@@ -60,24 +71,29 @@ module.exports = (io, prisma) => {
         });
 
         io.to(conversation_id).emit('receive_message', message);
-        
-        // Find other members to update their status (Delivery)
-        // Simplified: assuming they receive it if connected
       } catch (error) {
         console.error('Error saving message:', error);
       }
     });
 
-    socket.on('typing_start', ({ conversation_id }) => {
-      socket.to(conversation_id).emit('typing_start', { conversation_id, sender_id: userId });
+    socket.on('typing_start', async ({ conversation_id }) => {
+      const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { typing_indicator_enabled: true } });
+      if (currentUser?.typing_indicator_enabled) {
+        socket.to(conversation_id).emit('typing_start', { conversation_id, sender_id: userId });
+      }
     });
     
-    socket.on('typing_stop', ({ conversation_id }) => {
-      socket.to(conversation_id).emit('typing_stop', { conversation_id, sender_id: userId });
+    socket.on('typing_stop', async ({ conversation_id }) => {
+      const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { typing_indicator_enabled: true } });
+      if (currentUser?.typing_indicator_enabled) {
+        socket.to(conversation_id).emit('typing_stop', { conversation_id, sender_id: userId });
+      }
     });
 
-    socket.on('disconnect', () => {
-      socket.broadcast.emit('user_status', { userId, status: 'offline' });
+    socket.on('disconnect', async () => {
+      if (user && user.online_status_visible) {
+        socket.broadcast.emit('user_status', { userId, status: 'offline' });
+      }
     });
   });
 };

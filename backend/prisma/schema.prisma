@@ -14,14 +14,32 @@ model User {
   password_hash    String
   display_name     String?
   profile_picture  String?
+  
+  // Privacy Settings
+  online_status_visible    Boolean  @default(true)
+  read_receipts_enabled    Boolean  @default(true)
+  typing_indicator_enabled Boolean  @default(true)
+
   created_at       DateTime   @default(now())
   updated_at       DateTime   @updatedAt
 
   conversations    ConversationMember[]
   messages         Message[]
+  sessions         Session[]
 
   nicknamesOwned   Nickname[] @relation("NicknamesOwned")
   nicknamesContact Nickname[] @relation("NicknamesContact")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  user_id      String
+  device_info  String?
+  ip_address   String?
+  last_active  DateTime @default(now())
+  created_at   DateTime @default(now())
+
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 }
 
 model Conversation {
@@ -38,6 +56,7 @@ model ConversationMember {
   conversation_id String
   user_id         String
   joined_at       DateTime @default(now())
+  hidden_at       DateTime?
 
   conversation    Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
   user            User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
