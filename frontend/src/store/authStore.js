@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import axios from 'axios';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005';
+
 const api = axios.create({
-  baseURL: 'http://localhost:5005/api',
+  baseURL: `${API_URL}/api`,
   withCredentials: true // Important for HttpOnly cookies
 });
 

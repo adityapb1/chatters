@@ -11,7 +11,9 @@ export const useSocket = () => {
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    const newSocket = io('http://localhost:5005', {
+    const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005';
+    
+    const newSocket = io(SOCKET_URL, {
       withCredentials: true
     });
 
