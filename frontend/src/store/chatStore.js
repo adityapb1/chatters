@@ -22,7 +22,7 @@ const useChatStore = create((set, get) => ({
 
   searchUsers: async (q) => {
     try {
-      const res = await api.get(`/users/search?q=${q}`);
+      const res = await api.get(`/users/search?query=${q}`);
       set({ searchResults: res.data });
     } catch (err) {
       console.error(err);
