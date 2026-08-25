@@ -5,12 +5,12 @@ import { useChatStore } from '../store/chatStore';
 import { useSocket } from '../hooks/useSocket';
 
 export default function Chat() {
-  const { fetchContacts } = useChatStore();
+  const { fetchConversations } = useChatStore();
   const socket = useSocket();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
-    fetchContacts();
+    fetchConversations();
   }, []);
 
   return (
