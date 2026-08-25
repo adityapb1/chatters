@@ -137,6 +137,11 @@ export default function Sidebar({ onClose }) {
                       </p>
                     )}
                   </div>
+                  {isSearching && (
+                    <button className="text-xs bg-accent text-white px-3 py-1.5 rounded-full font-medium hover:bg-opacity-90">
+                      Chat
+                    </button>
+                  )}
                 </div>
               );
             })}
