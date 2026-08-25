@@ -1,18 +1,27 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate, Link } from 'react-router-dom';
 
 export default function Register() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { register, error } = useAuthStore();
+  const [displayName, setDisplayName] = useState('');
+  const { register, error, isAuthenticated, isCheckingAuth } = useAuthStore();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated && !isCheckingAuth) {
+      navigate('/');
+    }
+  }, [isAuthenticated, isCheckingAuth, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const success = await register(username, password);
+    const success = await register(username, password, displayName);
     if (success) navigate('/');
   };
+
+  if (isCheckingAuth) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-secondary p-4">
@@ -29,6 +38,15 @@ export default function Register() {
               required 
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-4 py-2 bg-bg-secondary border border-border-custom rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-2">Display Name (Optional)</label>
+            <input 
+              type="text" 
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
               className="w-full px-4 py-2 bg-bg-secondary border border-border-custom rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-text-primary"
             />
           </div>
@@ -50,7 +68,7 @@ export default function Register() {
           </button>
         </form>
         <p className="mt-6 text-center text-text-secondary text-sm">
-          Already have an account? <Link to="/login" className="text-accent hover:underline">Log in</Link>
+          Already have an account? <Link to="/login" className="text-accent hover:underline">Sign in</Link>
         </p>
       </div>
     </div>

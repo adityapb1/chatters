@@ -1,18 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate, Link } from 'react-router-dom';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { login, error } = useAuthStore();
+  const { login, error, isAuthenticated, isCheckingAuth } = useAuthStore();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated && !isCheckingAuth) {
+      navigate('/');
+    }
+  }, [isAuthenticated, isCheckingAuth, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const success = await login(username, password);
     if (success) navigate('/');
   };
+
+  if (isCheckingAuth) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-secondary p-4">

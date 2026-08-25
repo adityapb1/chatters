@@ -7,7 +7,16 @@ import Register from './pages/Register';
 import Chat from './pages/Chat';
 
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isCheckingAuth } = useAuthStore();
+  
+  if (isCheckingAuth) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-bg-primary text-text-primary">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+      </div>
+    );
+  }
+  
   if (!isAuthenticated) return <Navigate to="/login" />;
   return children;
 };
