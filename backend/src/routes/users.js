@@ -74,4 +74,33 @@ router.post('/nickname', authenticate, async (req, res) => {
   }
 });
 
+// Update Profile
+router.put('/profile', authenticate, async (req, res) => {
+  const { display_name, email, profile_picture } = req.body;
+  try {
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: {
+        display_name: display_name !== undefined ? display_name : undefined,
+        email: email !== undefined ? email : undefined,
+        profile_picture: profile_picture !== undefined ? profile_picture : undefined
+      },
+      select: {
+        id: true,
+        username: true,
+        display_name: true,
+        email: true,
+        profile_picture: true
+      }
+    });
+    res.json(updatedUser);
+  } catch (error) {
+    if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+      return res.status(400).json({ error: 'Email already in use' });
+    }
+    console.error(error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

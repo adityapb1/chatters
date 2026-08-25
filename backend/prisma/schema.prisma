@@ -10,6 +10,7 @@ generator client {
 model User {
   id               String     @id @default(uuid())
   username         String     @unique
+  email            String?    @unique
   password_hash    String
   display_name     String?
   profile_picture  String?
@@ -21,8 +22,6 @@ model User {
 
   nicknamesOwned   Nickname[] @relation("NicknamesOwned")
   nicknamesContact Nickname[] @relation("NicknamesContact")
-
-  reactions        Reaction[]
 }
 
 model Conversation {
@@ -61,8 +60,6 @@ model Message {
   conversation    Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
   sender          User         @relation(fields: [sender_id], references: [id], onDelete: Cascade)
 
-  reactions       Reaction[]
-
   @@index([conversation_id, created_at])
   @@index([sender_id])
 }
@@ -80,17 +77,4 @@ model Nickname {
   contact         User     @relation("NicknamesContact", fields: [contact_user_id], references: [id], onDelete: Cascade)
 
   @@unique([owner_user_id, contact_user_id])
-}
-
-model Reaction {
-  id         String   @id @default(uuid())
-  message_id String
-  user_id    String
-  emoji      String
-  created_at DateTime @default(now())
-
-  message    Message  @relation(fields: [message_id], references: [id], onDelete: Cascade)
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@unique([message_id, user_id, emoji])
 }

@@ -39,8 +39,20 @@ const useAuthStore = create((set) => ({
   logout: async () => {
     try {
       await api.post('/auth/logout');
-    } catch(e) {}
-    set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false });
+    } catch (error) {
+      console.error(error);
+    }
+  },
+
+  updateProfile: async (data) => {
+    try {
+      const res = await api.put('/users/profile', data);
+      set({ user: res.data });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error || 'Update failed' };
+    }
   },
 
   checkAuth: async () => {
