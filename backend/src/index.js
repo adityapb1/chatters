@@ -40,6 +40,10 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/conversations', require('./routes/conversations'));
 app.use('/api/messages', require('./routes/messages'));
 
+app.get('/', (req, res) => {
+  res.json({ status: 'Backend is running!', message: 'Privacy-First Chat API' });
+});
+
 const PORT = process.env.PORT || 5005;
 if (process.env.NODE_ENV !== 'production') {
   server.listen(PORT, () => {
